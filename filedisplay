@@ -1,0 +1,204 @@
+#include <iostream>
+#include <string>
+#include <sstream>
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <errno.h>
+#include <string.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <sys/stat.h>
+#include <pthread.h>
+#include <string.h>
+#include "sqlite3.h"
+
+//File Display Module
+using std::string;
+using namespace std;
+string qsqlFD(string st);
+void FilesDisplay(int sd, char* buffer)
+{
+int i;
+string user,str = buffer;
+char* uri;
+//Using Get to check for User name
+uri = strstr(buffer,"submit");
+for(i=7;i<20;i++ )
+	{
+    if(uri[i] == '&')
+    break;
+    user = user + uri[i];
+	}
+//Using buf1 to calculate the content-length
+string buf1="HTTP/1.1 200 OK\nServer: 207httpd/23\nContent-length:\nConnection: close\nContent-Type:text/html\n\n<html><head><link rel=stylesheet type=text/css href=anything.css />\n<title>File Names</title>\n</head><body>\n <header><div align:justify>		<center><img src=Form.jpg></center><center><strong>File Server</strong></center></div></header><center><div align:justify ID=registration>Download Files"+qsqlFD(user)+"\n</div></center></body></html>\n";
+int len1=strlen(buf1.c_str())-80;
+std::stringstream ss;
+ss << len1;
+std::string str1 = ss.str();//put content-length into str1
+printf("%s\n",str1.c_str());
+//Creation of Dynamic html page content
+string buf2="HTTP/1.1 200 OK\nServer: 207httpd/23\nContent-length:"+str1+"\nConnection: close\nContent-Type:text/html\n\n<html><head><link rel=stylesheet type=text/css href=anything.css />\n<title>File Names</title>\n</head><body>\n <header><div align:justify><center><img src=Form.jpg></center><center><strong>File Server</strong></center></div></header><center><div align:justify ID=registration>Download Files"+qsqlFD(user)+"\n</div></center></body></html>\n";
+int len2=strlen(buf2.c_str());
+cout<<buf2.c_str()<<endl;
+write(sd,buf2.c_str(),5000);
+//writing the html
+}
+string qsqlFD(string usr )
+{
+int i=0;
+string s1;
+sqlite3 *db;
+char *error = 0;
+int rec;
+int cmd;
+string s;
+const char *user;
+user=usr.c_str();
+printf("%s\n",user);
+int slen=s.size();
+int slen1=strlen(s.c_str());
+int rows=0;
+const char* data = "cb function called";
+bool insert;
+//opening the database
+rec = sqlite3_open("207DB.db", &db);
+if(rec)
+	{
+    fprintf(stderr, "==============Unable to open Database successfully: %s==============\n", sqlite3_errmsg(db));
+    exit(0);
+   	}
+else
+	{
+    fprintf(stderr, "==============Request to open Database successful==============\n");
+	}
+char sqluser[128] = {0};
+//database command to count the number of elements from Files table
+cmd=snprintf(sqluser, 256, "Select count(*) from Files where UserID='%s'",user);
+if(cmd<0)
+    {
+    printf("error\n");}
+	printf("%s\n",sqluser);
+sqlite3_stmt *count = NULL;
+int n = sqlite3_prepare(db, sqluser, 256, &count, NULL);
+n=sqlite3_step(count);
+//Database commands used
+if( n <0)
+	{
+    fprintf(stderr, "==============SQL error: %s==============\n", error);
+    sqlite3_free(error);
+    }
+else
+	{
+    fprintf(stdout, "==============Request to execute the query successful==============\n");
+    }
+rows = sqlite3_column_int(count, 0);
+printf("%d\n",rows);
+char sqlfile[128] = {0};
+cmd=snprintf(sqlfile, 256, "Select * from Files where UserID='%s'",user);
+if(cmd<0)
+	{
+	printf("error\n");
+	}
+printf("%s\n",sqlfile);
+sqlite3_stmt *count1 = NULL;
+int n2 = sqlite3_prepare(db,sqlfile, 256, &count1, NULL);
+//For the files to be shared
+for(i=0;i<rows;i++)
+	{
+    int n1=sqlite3_step(count1);
+    if( n1 <0 )
+    {
+    fprintf(stderr, "==============SQL error1: %s==============\n", error);
+    sqlite3_free(error);
+    exit(0);
+    }
+    else
+    {
+    fprintf(stdout, "==============Request to share file successful==============\n");
+    }
+const unsigned char *s4 =sqlite3_column_text(count1, 0);
+const unsigned char *s2 =sqlite3_column_text(count1, 2);
+std::string sfileName1((char*) s2);
+std::string sfileID((char*) s4);
+s1 += string("<p>")+string("<form id=myForm action=FilesShare.cpp method=get enctype=multipart/form-data><a href=") + sfileName1+
+string(" ")+string("download=")+sfileName1+string(">")+sfileName1+string("</a>")+string(" ")+string("<input type=text name=usrid />")+string("<button name=test value=")+sfileID+string(">Share")+string("</button>")+string("</form>")+string("</p>");
+}
+sqlite3_finalize(count);
+sqlite3_finalize(count1);
+char sqltosharecount[128] = {0};
+//Inner join for the files shared between two users.
+cmd=snprintf(sqltosharecount, 256, "SELECT count(*)  from Files INNER JOIN share ON Files.fileID=share.fileID where share.UserID='%s'",user);
+//cmd=sprintf(sqltosharecount, 256, "SELECT count(*)  from Files INNER JOIN share ON Files.fileID=share.fileID where share.UserID='%s'",user);
+if(cmd<0)
+	{
+	printf("error\n");}
+printf("%s\n",sqltosharecount);
+sqlite3_stmt *sharecount1 = NULL;
+int nshare = sqlite3_prepare(db, sqltosharecount, 256, &sharecount1, NULL);
+nshare=sqlite3_step(sharecount1);
+if( nshare <0)
+	{
+    fprintf(stderr, "SQL error: %s\n", error);
+    sqlite3_free(error);
+    exit(0);
+	}
+	else
+	{
+    fprintf(stdout, "Rows created to share files successfully\n");
+   	}
+rows = sqlite3_column_int(sharecount1, 0);
+printf("%d\n",rows);
+char sqltoshare[128] = {0};
+//sql
+cmd=snprintf(sqltoshare, 256, "SELECT Files.filename from Files INNER JOIN share ON Files.fileID=share.fileID where share.UserID='%s'",user);
+//cmd=sprintf(sqltosharecount, 256, "SELECT count(*)  from Files INNER JOIN share ON Files.fileID=share.fileID where share.UserID='%s'",user);
+if(cmd<0)
+	{
+printf("==============error==============\n");}
+printf("%s\n",sqltoshare);
+sqlite3_stmt *share1 = NULL;
+int n2share = sqlite3_prepare(db, sqltoshare, 256, &share1, NULL);
+for(i=0;i<rows;i++)
+	{
+    int n1share=sqlite3_step(share1);
+    if( n1share <0 )
+    {
+    fprintf(stderr, "==============SQL error1: %s==============\n", error);
+    sqlite3_free(error);
+    exit(0);
+    }
+    else
+    {
+    fprintf(stdout, "==============Rows created to download files successfully==============\n");
+    }
+const unsigned char *s3 =sqlite3_column_text(share1, 0);
+std::string sfileName((char*) s3);
+s1 += string("<p>")+string("<a href=") + sfileName + string(" ")+string("download=")+sfileName+string(">")+sfileName+string("</a>")
++string("</p>");
+    }
+sqlite3_finalize(sharecount1);
+sqlite3_finalize(share1);
+sqlite3_close(db);
+if(strlen(s1.c_str())<=0)
+	{
+    s1 +="==============No Files To be shared==============";
+	}
+return s1;
+}
+
+
+static int cb(void *data, int argc, char **argv, char **name){
+int i;
+for(i=0; i<argc; i++)
+{
+//printf("callback function called\n");
+}
+printf("\n");
+return 0;
+}
