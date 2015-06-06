@@ -1,0 +1,134 @@
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <iostream>
+#include <string.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/types.h>
+#include <stdbool.h>
+#include <netinet/in.h>
+#include <sys/stat.h>
+#include <sys/socket.h>
+#include <pthread.h>
+#include <arpa/inet.h>
+#include <sqlite3.h>
+#define VERSION 23
+#define BUFSIZE 947483
+using namespace std;
+static int cb(void *data, int argc, char **argv, char **name);
+string qsql( const string s );
+//File Upload module
+void FilesUpload(int sd,char* buffer, int len)
+ {
+int i,rt,fd,rec,new_addr;
+string name;
+string filename;
+static char file_name;
+char *error = 0;
+FILE *file_d;
+char* ptr;
+char *sql;
+const char* data = "==============cb function called==============\n";
+bool insert;
+rt = len;
+ptr = strstr(buffer,"filename");
+if(ptr != NULL)
+	{
+	for(i=10;;i++)
+	{
+	if(ptr[i] == '"')break;
+	filename = filename + ptr[i];
+	}
+ptr = strstr(ptr,"Content-Type");
+ptr = strstr(ptr,"\n");
+new_addr = ptr - buffer;
+rt = rt - new_addr;
+cout<<endl<<"file POSITION:"<<rt<<"File Name:"<< filename <<endl;
+FILE *fd;
+fd = fopen(filename.c_str(),"wb+");//file handler
+fwrite(ptr,1,rt,fd);
+fclose(fd);
+	}
+// Database insert into operation
+string sqlinsert;
+sqlite3 *db;
+//opening database
+rec = sqlite3_open("207DB.db", &db);
+if( rec )
+    {
+     fprintf(stderr, "==============Unable to open Database: %s==============\n", sqlite3_errmsg(db));
+     exit(0);
+   	}
+    else
+    {
+   	fprintf(stderr, "==============Request to open Database successful==============\n");
+    }
+string username ;
+
+//Using Post to check for User name
+ptr = strstr(buffer,"login");
+   if(ptr != NULL)
+   {
+   for(i=6;;i++)
+   {
+   if(ptr[i] == '&')break;
+   username = username + ptr[i];}
+    }
+cout<<username<<endl;
+if(true)
+	{
+//Inserting file into user's database
+sqlinsert="INSERT INTO Files  (UserID, filename) VALUES ("+ qsql(username) + ","+ qsql(filename) + ");";
+rec = sqlite3_exec(db, sqlinsert.c_str(), cb, (void*)data, &error);
+    if( rec != SQLITE_OK )
+    {
+    fprintf(stderr, "==============SQL error: %s==============\n", error);
+    sqlite3_free(error);
+    }
+    else
+    {
+    fprintf(stdout, "==============Requested file inserted in the Database successfully==============\n");
+    }
+}
+rec = sqlite3_close(db);
+//opening Display.html page
+strcpy(&file_name, "Display.html");
+if((fd = open("Display.html",O_RDONLY)) < 0)
+{
+printf("==============Error in opening the requested file==============\n");
+fflush(stdout);
+pthread_exit(NULL);
+}
+else
+{
+long i, rt, len;
+const char * type = "text/html";
+struct stat s_buf;
+len = (long)lseek(fd, (off_t)0, SEEK_END); //file handler
+(void)lseek(fd, (off_t)0, SEEK_SET);
+bzero(buffer,sizeof(buffer));
+(void)sprintf(buffer,"HTTP/1.1 200 OK\nServer: 207httpd/%d.0\nContent-len: %ld\nConnection: close\nContent-Type: %s\n\n", VERSION,len, type);
+(void)write(sd,buffer,strlen(buffer));
+while (	(rt = read(fd, buffer, BUFSIZE)) > 0 ) {
+(void)write(sd,buffer,rt);
+//printf("%s\n",buffer);
+}
+sleep(1);
+close(sd);
+}
+}
+static int cb(void *data, int argc, char **argv, char **name){
+int i;
+for(i=0; i<argc; i++)
+   {
+   }
+printf("\n");
+return 0;
+}
+
+string qsql( const string s ) {
+return string("'") + s + string("'");
+}
+
