@@ -1,0 +1,167 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sstream>
+#include <errno.h>
+#include <string.h>
+#include <iostream>
+#include "sqlite3.h"
+#include <fcntl.h>
+#include <signal.h>
+#include <pthread.h>
+#include <sys/types.h>
+#include <arpa/inet.h>
+#include <string>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <sys/stat.h>
+#define VERSION 23
+#define BUFSIZE 946494
+#define DISPLAYHT "Display.html"
+
+using namespace std;
+
+int db(string user,string password);
+extern int good_requests,bad_requests,downloads;
+extern pthread_mutex_t mutex;
+static int valid=0;
+static int cb(void *data, int argc, char **argv, char **name);
+//File Login Module
+void FileLog(int sd, char* buffer)
+{
+int i,fd;
+const char * type = "text/html";
+string user,password,str = buffer;
+char* uri;
+long rt, len;
+struct stat s_buf;
+//Using Get to check for User name
+uri = strstr(buffer,"login");
+for(i=6;i<20;i++ )
+	{
+    if(uri[i] == '&')
+    break;
+    user = user + uri[i]; //Parsing of the username
+    //printf("username=%s\n",user);
+	}
+//Using Get to check for Password
+uri = strstr(buffer,"password");
+for(i=9;i<20;i++ )
+	{
+    if(uri[i] == '&')
+    break;
+    password = password + uri[i]; //Parsing of the Password
+    //printf("user password=%s\n",password);
+	}
+//Parsing with Database
+int res=db(user,password);
+	if(res>0)
+	{
+    if((fd = open("Login.html",O_RDONLY)) < 0)
+    {
+    printf("=============Error in opening the requested file==============\n");
+    fflush(stdout);
+    pthread_exit(NULL);
+    }
+    else
+    {
+    len = (long)lseek(fd, (off_t)0, SEEK_END);             //file handler
+    (void)lseek(fd, (off_t)0, SEEK_SET);
+    (void)sprintf(buffer,"HTTP/1.1 200 OK\nServer: 207httpd/%d.0\nContent-len: %ld\nConnection: close\nContent-Type: %s\n\n", VERSION,len, type);
+    (void)write(sd,buffer,strlen(buffer));
+    while (	(rt = read(fd, buffer, BUFSIZE)) > 0 )
+    {
+//printf("%s\n",buffer);
+    (void)write(sd,buffer,rt);
+    }
+    }
+    }
+//http response by the server
+else
+    {
+	if((fd = open(DISPLAYHT,O_RDONLY)) < 0)                   //opening Display.html page
+	{
+    printf("==============Error in opening the requested file==============\n");
+    fflush(stdout);
+    pthread_exit(NULL);
+	}
+else
+	{
+    len = (long)lseek(fd, (off_t)0, SEEK_END);                    //file handler
+    (void)lseek(fd, (off_t)0, SEEK_SET);
+    (void)sprintf(buffer,"HTTP/1.1 200 OK\nServer: 207httpd/%d.0\nContent-len: %ld\nConnection: close\nContent-Type: %s\n\n", VERSION,len, type);
+//printf("%s\n",buffer);
+    (void)write(sd,buffer,strlen(buffer));
+while (	(rt = read(fd, buffer, BUFSIZE)) > 0 ) {
+    (void)write(sd,buffer,rt);
+    }
+    sleep(1);
+    close(sd);
+	}
+}
+}
+int db(string user,string password)
+{
+sqlite3 *db;
+string sql;
+int rec;
+rec = sqlite3_open("207DB.db", &db);
+const char* data = "cb called";
+char *error =0;
+//Database Handler
+if(rec)
+	{
+    fprintf(stderr, "==============Unable to open Database successfully: %s==============\n", sqlite3_errmsg(db));
+    exit(0);
+	}
+else
+	{
+    fprintf(stderr, "==============Request to open Database successful==============\n");
+	}
+//sqlite3_close(db);
+//Select from Users table the legal user account
+sql="Select * from Users where UserID like "+string("'")+user+string("'")+" and password like "+string("'")+password+string("'");
+printf("%s\n",sql.c_str());
+//Using Database Commands
+rec = sqlite3_exec(db, sql.c_str(), cb, (void*)data, &error);
+cout<<rec<<endl;
+pthread_mutex_lock(&mutex);
+//Data not matching Login Failure
+if( rec != SQLITE_OK || valid==0)
+	{
+    pthread_mutex_unlock(&mutex);
+    fprintf(stderr, "==============Login Failed: %s==============\n", error);
+    sqlite3_free(error);
+    pthread_mutex_lock(&mutex);
+    bad_requests += 1;
+    //printf("Unsuccessful=%d\n",bad_requests);
+    pthread_mutex_unlock(&mutex);
+    return 4;
+	}
+//if data matched then login successful
+else
+	{
+    valid=0;
+    pthread_mutex_unlock(&mutex);
+    fprintf(stdout, "==============login done successfully==============\n");
+    pthread_mutex_lock(&mutex);
+    good_requests += 1;
+    //printf("Successful=%d\n",good_requests);
+    pthread_mutex_unlock(&mutex);
+    return 0;
+	}
+}
+//callback function
+static int cb(void *data, int argc, char **argv, char **name)
+{
+int i;
+pthread_mutex_lock(&mutex);
+valid=1;
+pthread_mutex_unlock(&mutex);
+for(i=0; i<argc; i++)
+{
+//printf("callback executed\n")
+    }
+printf("\n");
+return 0;
+}
